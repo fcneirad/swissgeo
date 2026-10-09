@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "swissgeo"
+version = "0.2.0"
+description = "Swiss geodesy toolkit: WGS84<->LV95 transforms, COFS municipality lookup, and elevation queries. Fully offline; numpy + stdlib only at runtime."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "swissgeo" }]
+keywords = ["switzerland", "lv95", "wgs84", "ch1903", "cofs", "elevation", "dgm", "geodesy", "offline"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: GIS",
+    "License :: OSI Approved :: MIT License",
+]
+
+# Runtime: numpy only (already present in the hidres requirements-dev.txt).
+# No pyproj / geopandas / shapely / rasterio / fiona / requests at runtime.
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# Development-only tools. NOT required to use the library.
+# The one-time data setup (`swissgeo fetch-data` / scripts/convert_data.py)
+# needs no extra packages: the COFS step is stdlib-only, and if rasterio is
+# missing for the elevation step it is installed into a throwaway venv that is
+# deleted afterwards -- your environment is never modified.
+dev = [
+    "pytest>=7.0",
+]
+
+[project.scripts]
+swissgeo = "swissgeo.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["swissgeo*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
