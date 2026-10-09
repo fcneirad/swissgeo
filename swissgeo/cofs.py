@@ -22,7 +22,7 @@ from typing import Optional
 
 import numpy as np
 
-from .transforms import is_valid_lv95
+from .transforms import LV95_SWISS_BOUNDS, is_valid_lv95
 
 __all__ = ["Municipality", "CofsLookup"]
 
@@ -64,9 +64,11 @@ class CofsLookup:
 
     def __init__(self, data_dir: Optional[str] = None) -> None:
         if data_dir is None:
-            # Default: look relative to the package's parent (project root).
-            here = os.path.dirname(os.path.abspath(__file__))
-            data_dir = os.path.join(os.path.dirname(here), "data", "cofs_lv95")
+            # Default: resolve via DataStore so $SWISSGEO_DATA is honoured
+            # (falls back to the package-relative <project>/data/cofs_lv95).
+            from .data import DataStore
+
+            data_dir = DataStore().cofs_path
         self.data_dir = data_dir
         self._load(data_dir)
 
@@ -170,6 +172,141 @@ class CofsLookup:
                 p = self._props[int(idx)]
                 return Municipality(cofs=p["cofs"], name=p.get("name"), canton=p.get("canton"))
         return None
+
+    # ------------------------------------------------- vectorised batch lookup
+    def _cell_to_polys(self) -> dict:
+        """Lazily build the inverse grid index: cell_id -> polygon indices."""
+        inv = getattr(self, "_cell_inv", None)
+        if inv is None:
+            cells = self._cells
+            starts = self._cell_start
+            # For each CSR position p, the owning polygon.
+            polys_of_pos = (np.searchsorted(starts, np.arange(cells.size), side="right") - 1
+                            if cells.size else np.zeros(0, dtype=np.int32))
+            inv = {}
+            for cell_id in np.unique(cells):
+                mask = cells == cell_id
+                inv[int(cell_id)] = np.unique(polys_of_pos[mask])
+            self._cell_inv = inv
+        return inv
+
+    def from_lv95_batch(
+        self, eastings, northings
+    ) -> list:
+        """Vectorised :meth:`from_lv95` for arrays of points.
+
+        Parameters
+        ----------
+        eastings, northings:
+            1-D sequences (or numpy arrays) of LV95 coordinates, same length.
+
+        Returns
+        -------
+        List of :class:`Municipality` or ``None`` in input order. Points outside
+        the Swiss LV95 extent are rejected without any polygon test. The result
+        is identical to calling :meth:`from_lv95` per point (first containing
+        candidate polygon wins).
+
+        Notes
+        -----
+        Point-in-polygon uses the same even-odd ray-casting rule as the scalar
+        path, vectorised with numpy over (points x edges) blocks.
+        """
+        e = np.asarray(eastings, dtype=np.float64).ravel()
+        n = np.asarray(northings, dtype=np.float64).ravel()
+        if e.shape != n.shape:
+            raise ValueError("eastings and northings must have the same length")
+
+        out: list = [None] * e.size
+        if e.size == 0:
+            return out
+
+        b = LV95_SWISS_BOUNDS
+        in_bounds = (
+            (e >= b["min_e"]) & (e <= b["max_e"])
+            & (n >= b["min_n"]) & (n <= b["max_n"])
+        )
+        idx = np.nonzero(in_bounds)[0]
+        if idx.size == 0:
+            return out
+
+        # Group in-bounds points by grid cell.
+        cell_size = self._meta["cell_size_m"]
+        e0 = self._meta["grid_origin_e"]
+        n0 = self._meta["grid_origin_n"]
+        c = ((e[idx] - e0) // cell_size).astype(np.int64)
+        r = ((n[idx] - n0) // cell_size).astype(np.int64)
+        cell_ids = r * 100000 + c
+
+        inv = self._cell_to_polys()
+        unique_cells, inverse = np.unique(cell_ids, return_inverse=True)
+
+        verts = self._verts
+        ring_start = self._ring_start
+        # NOTE: ring_start may or may not carry a terminator entry (one past the
+        # last vertex); use the same boundary test as the scalar path.
+        n_ring_entries = len(ring_start)
+
+        for ci, cell_id in enumerate(unique_cells):
+            point_idx = idx[inverse == ci]
+            candidates = inv.get(cell_id)
+            if candidates is None or candidates.size == 0:
+                continue
+            pts_e = e[point_idx]
+            pts_n = n[point_idx]
+            # Candidates are tested in the same order as the scalar path; the
+            # first containing polygon wins per point.
+            unresolved = np.ones(pts_e.size, dtype=bool)
+            for poly in candidates:
+                if not unresolved.any():
+                    break
+                pi = int(poly)
+                bx = self._bbox[pi]
+                # Bbox reject per (still unresolved) point.
+                in_bbox = (
+                    (pts_e >= bx[0]) & (pts_e <= bx[2])
+                    & (pts_n >= bx[1]) & (pts_n <= bx[3])
+                    & unresolved
+                )
+                if not in_bbox.any():
+                    continue
+                sub_pos = np.nonzero(in_bbox)[0]
+                se = pts_e[sub_pos]
+                sn = pts_n[sub_pos]
+
+                parity = np.zeros(se.size, dtype=np.int8)
+                r0 = int(self._poly_start[pi])
+                r1 = int(self._poly_start[pi + 1])
+                for ri in range(r0, r1):
+                    vs = int(ring_start[ri])
+                    ve = int(ring_start[ri + 1]) if ri + 1 < n_ring_entries else len(verts)
+                    ring = verts[vs:ve].astype(np.float64)
+                    nv = ring.shape[0]
+                    if nv < 3:
+                        continue
+                    ax = ring[:, 0]
+                    ay = ring[:, 1]
+                    bx_e = np.roll(ax, -1)
+                    by_e = np.roll(ay, -1)
+                    # Chunk points to bound the (P x E) temporary.
+                    for s in range(0, se.size, 4096):
+                        px = se[s:s + 4096][:, None]
+                        py = sn[s:s + 4096][:, None]
+                        with np.errstate(divide="ignore", invalid="ignore"):
+                            x_int = (bx_e - ax) * (py - ay) / (by_e - ay) + ax
+                        crosses = ((ay > py) != (by_e > py)) & (px < x_int)
+                        parity[s:s + 4096] ^= (crosses.sum(axis=1) % 2).astype(np.int8)
+
+                hit = np.nonzero(parity)[0]
+                if hit.size == 0:
+                    continue
+                p = self._props[pi]
+                muni = Municipality(cofs=p["cofs"], name=p.get("name"), canton=p.get("canton"))
+                for j in hit:
+                    out[int(point_idx[sub_pos[j]])] = muni
+                unresolved[sub_pos[hit]] = False
+
+        return out
 
     def from_wgs84(self, lon: float, lat: float) -> Optional[Municipality]:
         """Convenience wrapper: convert WGS84 to LV95 then look up the COFS code."""

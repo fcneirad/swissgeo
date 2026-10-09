@@ -55,8 +55,11 @@ class ElevationLookup:
 
     def __init__(self, data_dir: Optional[str] = None) -> None:
         if data_dir is None:
-            here = os.path.dirname(os.path.abspath(__file__))
-            data_dir = os.path.join(os.path.dirname(here), "data", "elevation_10m")
+            # Default: resolve via DataStore so $SWISSGEO_DATA is honoured
+            # (falls back to the package-relative <project>/data/elevation_10m).
+            from .data import DataStore
+
+            data_dir = DataStore().elevation_path
         self.data_dir = data_dir
         self._load(data_dir)
 
