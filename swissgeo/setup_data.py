@@ -427,7 +427,11 @@ def _run_elevation_ephemeral(tif_path: str, out_dir: str) -> None:
         subprocess.run(
             [base, "-m", "venv", "--system-site-packages", venv_dir], check=True
         )
-        venv_py = os.path.join(venv_dir, "bin", "python")
+
+        if os.name == 'nt':
+            venv_py = os.path.join(venv_dir, "Scripts", "python.exe")
+        else:
+            venv_py = os.path.join(venv_dir, "bin", "python")
 
         uv = shutil.which("uv")
         if uv:
