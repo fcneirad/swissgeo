@@ -32,12 +32,12 @@ def _box(e0: float, n0: float, e1: float, n1: float):
 
 
 SYNTH_MUNICIPALITIES = [
-    ("0351", "Bern", "2", [_box(2_600_000, 1_199_000, 2_602_000, 1_201_000)]),
-    ("0261", "Zürich", "1", [_box(2_680_000, 1_245_000, 2_684_000, 1_249_000)]),
-    ("6621", "Genève", "25", [_box(2_500_000, 1_115_000, 2_503_000, 1_118_000)]),
-    ("0701", "Basel", "28", [_box(2_490_000, 1_260_000, 2_493_000, 1_263_000)]),
+    ("0351", "Bern", "2", "Bern", [_box(2_600_000, 1_199_000, 2_602_000, 1_201_000)]),
+    ("0261", "Zürich", "1", "Zürich", [_box(2_680_000, 1_245_000, 2_684_000, 1_249_000)]),
+    ("6621", "Genève", "25", "Genève", [_box(2_500_000, 1_115_000, 2_503_000, 1_118_000)]),
+    ("0701", "Basel", "28", "Basel", [_box(2_490_000, 1_260_000, 2_493_000, 1_263_000)]),
     # Polygon with a hole: outer box minus inner box.
-    ("9999", "Testhole", "0", [
+    ("9999", "Testhole", "0", "nan", [
         _box(2_550_000, 1_200_000, 2_554_000, 1_204_000),
         _box(2_551_000, 1_201_000, 2_553_000, 1_203_000),
     ]),
@@ -53,7 +53,7 @@ def build_cofs_dataset(out_dir: str) -> None:
     props = []
     n_vert = 0
 
-    for cofs, name, canton, rings in SYNTH_MUNICIPALITIES:
+    for cofs, name, canton_number, canton_name, rings in SYNTH_MUNICIPALITIES:
         pminx = pminy = math.inf
         pmaxx = pmaxy = -math.inf
         for ring in rings:
@@ -66,7 +66,7 @@ def build_cofs_dataset(out_dir: str) -> None:
             pmaxx = max(pmaxx, float(coords[:, 0].max()))
             pmaxy = max(pmaxy, float(coords[:, 1].max()))
         bboxes.append([pminx, pminy, pmaxx, pmaxy])
-        props.append({"cofs": cofs, "name": name, "canton": canton})
+        props.append({"cofs": cofs, "name": name, "canton_number": canton_number, "canton_name": canton_name})
         poly_start.append(len(ring_start))
 
     verts = np.vstack(verts_list).astype(np.float32)

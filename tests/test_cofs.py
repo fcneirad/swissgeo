@@ -27,7 +27,8 @@ def test_bern_box(cofs_dir):
     assert m is not None
     assert m.cofs == "0351"
     assert m.name == "Bern"
-    assert m.canton == "2"
+    assert m.canton_number == "2"
+    assert m.canton_name == "Bern"
 
 
 def test_zurich_box(cofs_dir):

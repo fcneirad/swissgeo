@@ -144,8 +144,10 @@ def convert_cofs(gpkg_path: str, out_dir: str) -> None:
         raise SystemExit("COFS layer is not EPSG:2056; refusing to convert.")
 
     rows = cur.execute(
-        "SELECT bfs_nummer, name, kantonsnummer, geom "
-        "FROM tlm_hoheitsgebiet ORDER BY rowid"
+        "SELECT hg.bfs_nummer, hg.name, hg.kantonsnummer, kg.name, hg.geom "
+        "FROM tlm_hoheitsgebiet AS hg "
+        "JOIN tlm_kantonsgebiet AS kg ON hg.kantonsnummer = kg.kantonsnummer "
+        "ORDER BY hg.rowid"
     ).fetchall()
     con.close()
 
@@ -159,7 +161,7 @@ def convert_cofs(gpkg_path: str, out_dir: str) -> None:
     props: list[dict] = []
     n_vert_total = 0
 
-    for bfs_nummer, name, canton, geom_blob in rows:
+    for bfs_nummer, name, canton_number, canton_name, geom_blob in rows:
         if bfs_nummer is None or geom_blob is None:
             continue
         polys = parse_gpkg_geometry(geom_blob)
@@ -191,8 +193,10 @@ def convert_cofs(gpkg_path: str, out_dir: str) -> None:
         props.append({
             "cofs": code.zfill(4),
             "name": None if name is None else str(name),
-            "canton": (None if canton is None or str(canton) == "nan"
-                       else str(int(canton))),
+            "canton_number": (None if canton_number is None or str(canton_number) == "nan"
+                       else str(int(canton_number))),
+            "canton_name": (None if canton_name is None or str(canton_name) == "nan"
+                       else str(canton_name)),
         })
         poly_start.append(len(ring_start))
 

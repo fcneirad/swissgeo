@@ -33,14 +33,17 @@ class Municipality:
 
     cofs: str
     name: Optional[str] = None
-    canton: Optional[str] = None
+    canton_number: Optional[str] = None
+    canton_name: Optional[str] = None
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         parts = [f"COFS {self.cofs}"]
         if self.name:
             parts.append(self.name)
-        if self.canton:
-            parts.append(f"(canton {self.canton})")
+        if self.canton_number:
+            parts.append(f"(canton_number {self.canton_number})")
+        if self.canton_name:
+            parts.append(f"(canton_name {self.canton_name})")
         return " ".join(parts)
 
 
@@ -170,7 +173,7 @@ class CofsLookup:
                 continue
             if self._point_in_polygon(easting, northing, int(idx)):
                 p = self._props[int(idx)]
-                return Municipality(cofs=p["cofs"], name=p.get("name"), canton=p.get("canton"))
+                return Municipality(cofs=p["cofs"], name=p.get("name"), canton_number=p.get("canton_number"), canton_name=p.get("canton_name"))
         return None
 
     # ------------------------------------------------- vectorised batch lookup
@@ -301,7 +304,7 @@ class CofsLookup:
                 if hit.size == 0:
                     continue
                 p = self._props[pi]
-                muni = Municipality(cofs=p["cofs"], name=p.get("name"), canton=p.get("canton"))
+                muni = Municipality(cofs=p["cofs"], name=p.get("name"), canton_number=p.get("canton_number"), canton_name=p.get("canton_name"))
                 for j in hit:
                     out[int(point_idx[sub_pos[j]])] = muni
                 unresolved[sub_pos[hit]] = False
